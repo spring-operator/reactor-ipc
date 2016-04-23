@@ -35,7 +35,7 @@ import static org.junit.Assert.assertTrue;
 /**
  * @author Anatoly Kadyshev
  */
-public class AeronClientServerUnicastTest extends CommonSubscriberPublisherTest {
+public class AeronClientServerUnicastTest extends AeronClientServerCommonTest {
 
 	@Override
 	protected Context createContext(String name) {

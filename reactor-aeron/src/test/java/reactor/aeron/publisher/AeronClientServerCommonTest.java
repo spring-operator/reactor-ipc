@@ -46,7 +46,7 @@ import static org.junit.Assert.*;
 /**
  * @author Anatoly Kadyshev
  */
-public abstract class CommonSubscriberPublisherTest {
+public abstract class AeronClientServerCommonTest {
 
 	public static final Duration TIMEOUT = Duration.ofSeconds(5);
 
@@ -80,9 +80,10 @@ public abstract class CommonSubscriberPublisherTest {
 	@Test
 	public void testNextSignalIsReceivedByPublisher() throws InterruptedException {
 		AeronServer server = AeronServer.create(createContext("server"));
-
-		Flux.just(Buffer.wrap("One"), Buffer.wrap("Two"), Buffer.wrap("Three"))
-		    .subscribe(server);
+		server.start(channel -> {
+			channel.send(Flux.just(Buffer.wrap("One"), Buffer.wrap("Two"), Buffer.wrap("Three")));
+			return Mono.never();
+		});
 
 		AeronClient client = new AeronClient(createContext("client"));
 
@@ -99,6 +100,11 @@ public abstract class CommonSubscriberPublisherTest {
 	@Test
 	public void testErrorShutsDownSenderAndReceiver() throws InterruptedException {
 		AeronServer server = AeronServer.create(createContext("server"));
+		server.start(channel -> {
+			channel.send(Flux.<Buffer>error(new RuntimeException("Something went wrong")));
+			return Mono.never();
+		});
+
 		AeronClient client = new AeronClient(createContext("client"));
 
 		TestSubscriber<String> clientSubscriber = new TestSubscriber<String>();
@@ -108,9 +114,6 @@ public abstract class CommonSubscriberPublisherTest {
 		});
 
 
-
-		Flux.<Buffer>error(new RuntimeException("Something went wrong")).subscribe(server);
-
 		clientSubscriber.await().assertError();
 	}
 
@@ -118,13 +121,16 @@ public abstract class CommonSubscriberPublisherTest {
 	public void testFailedOnNextSignalPublicationIsReported() throws InterruptedException {
 		final CountDownLatch gotErrorLatch = new CountDownLatch(1);
 		final AtomicReference<Throwable> error = new AtomicReference<>();
-		AeronServer subscriber = AeronServer.create(createContext("subscriber").errorConsumer(th -> {
+		AeronServer server = AeronServer.create(createContext("server").errorConsumer(th -> {
 			gotErrorLatch.countDown();
 			error.set(th);
 		}));
 
-		final byte[] bytes = new byte[2048];
-		Flux.range(1, 100).map(i -> Buffer.wrap(bytes)).subscribe(subscriber);
+		server.start(channel -> {
+			final byte[] bytes = new byte[2048];
+			channel.send(Flux.range(1, 100).map(i -> Buffer.wrap(bytes)));
+			return Mono.never();
+		});
 
 		AeronClient client = new AeronClient(createContext("client").autoCancel(false));
 
@@ -186,8 +192,11 @@ public abstract class CommonSubscriberPublisherTest {
 	public void testUpstreamSubscriptionIsCancelledWhenAutoCancel() throws InterruptedException {
 		TestPublisher valuePublisher = new TestPublisher();
 
-		AeronServer aeronSubscriber = AeronServer.create(createContext("subscriber").autoCancel(true));
-		Buffer.stringToBuffer(valuePublisher).subscribe(aeronSubscriber);
+		AeronServer server = AeronServer.create(createContext("subscriber").autoCancel(true));
+		server.start(channel -> {
+			Buffer.stringToBuffer(valuePublisher);
+			return Mono.never();
+		});
 
 		AeronClient client = new AeronClient(createContext("client").autoCancel(true));
 		TestSubscriber<String> subscriber = new TestSubscriber<String>(0);
@@ -208,8 +217,11 @@ public abstract class CommonSubscriberPublisherTest {
 	public void testUpstreamSubscriptionIsNotCancelledWhenNoAutoCancel() throws InterruptedException {
 		TestPublisher valuePublisher = new TestPublisher();
 
-		AeronServer aeronSubscriber = AeronServer.create(createContext("subscriber").autoCancel(false));
-		Buffer.stringToBuffer(valuePublisher).subscribe(aeronSubscriber);
+		AeronServer server = AeronServer.create(createContext("subscriber").autoCancel(false));
+		server.start(channel -> {
+			Buffer.stringToBuffer(valuePublisher);
+			return Mono.never();
+		});
 
 		AeronClient client = new AeronClient(createContext("client").autoCancel(false));
 		TestSubscriber<String> subscriber = new TestSubscriber<String>(0);
@@ -226,7 +238,7 @@ public abstract class CommonSubscriberPublisherTest {
 		assertFalse(valuePublisher.awaitCancelled(Duration.ofSeconds(2)));
 
 		client.shutdown();
-		aeronSubscriber.shutdown();
+		server.shutdown();
 	}
 
 }
