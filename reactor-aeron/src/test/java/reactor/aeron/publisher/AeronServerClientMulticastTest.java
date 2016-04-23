@@ -22,7 +22,7 @@ import reactor.aeron.utils.AeronTestUtils;
 /**
  * @author Anatoly Kadyshev
  */
-public class AeronSubscriberPublisherMulticastTest extends CommonSubscriberPublisherTest {
+public class AeronServerClientMulticastTest extends CommonSubscriberPublisherTest {
 
 	private String CHANNEL = AeronTestUtils.availableLocalhostChannel();
 

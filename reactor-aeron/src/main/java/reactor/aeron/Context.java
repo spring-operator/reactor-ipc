@@ -19,8 +19,9 @@ import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
+import reactor.aeron.publisher.AeronClient;
 import reactor.aeron.publisher.AeronProcessor;
-import reactor.aeron.subscriber.AeronSubscriber;
+import reactor.aeron.subscriber.AeronServer;
 import reactor.aeron.utils.AeronInfra;
 import reactor.aeron.utils.AeronUtils;
 import reactor.aeron.utils.BasicAeronInfra;
@@ -33,7 +34,7 @@ import uk.co.real_logic.aeron.logbuffer.FragmentHandler;
 
 /**
  *
- * Settings for {@link AeronSubscriber}, {@link AeronProcessor}, {@link reactor.aeron.publisher.AeronFlux#listenOn(Context)}
+ * Settings for {@link AeronServer}, {@link AeronProcessor}, {@link AeronClient#listenOn(Context)}
  *
  * @since 2.5
  */

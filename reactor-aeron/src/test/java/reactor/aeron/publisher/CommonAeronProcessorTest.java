@@ -32,6 +32,7 @@ import reactor.aeron.utils.ThreadSnapshot;
 import reactor.core.publisher.EmitterProcessor;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.FluxProcessor;
+import reactor.core.publisher.Mono;
 import reactor.core.test.TestSubscriber;
 import reactor.io.buffer.Buffer;
 
@@ -224,9 +225,12 @@ public abstract class CommonAeronProcessorTest {
 		TestSubscriber<String> subscriber = new TestSubscriber<String>(0);
 		Buffer.bufferToString(processor).subscribe(subscriber);
 
-		AeronFlux remotePublisher = new AeronFlux(createContext());
+		AeronClient remotePublisher = new AeronClient(createContext());
 		TestSubscriber<String> remoteSubscriber = new TestSubscriber<String>(0);
-		Buffer.bufferToString(remotePublisher).subscribe(remoteSubscriber);
+		remotePublisher.start(request -> {
+			Buffer.bufferToString(request.receive()).subscribe(remoteSubscriber);
+			return Mono.never();
+		});
 
 		subscriber.request(1);
 		remoteSubscriber.request(1);
@@ -244,9 +248,13 @@ public abstract class CommonAeronProcessorTest {
 		TestSubscriber<String> subscriber = new TestSubscriber<String>(0);
 		Buffer.bufferToString(processor).subscribe(subscriber);
 
-		AeronFlux remotePublisher = new AeronFlux(createContext());
+		AeronClient remotePublisher = new AeronClient(createContext());
 		TestSubscriber<String> remoteSubscriber = new TestSubscriber<String>(0);
-		Buffer.bufferToString(remotePublisher).subscribe(remoteSubscriber);
+		remotePublisher.start(request -> {
+			Buffer.bufferToString(request.receive()).subscribe(remoteSubscriber);
+			return Mono.never();
+		});
+
 
 		subscriber.request(1);
 		remoteSubscriber.request(1);

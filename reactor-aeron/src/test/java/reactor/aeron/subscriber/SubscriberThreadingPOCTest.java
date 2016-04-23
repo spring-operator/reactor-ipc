@@ -35,7 +35,7 @@ import reactor.io.buffer.Buffer;
 import uk.co.real_logic.agrona.concurrent.BackoffIdleStrategy;
 
 /**
- * Is not actually a test but a proof of concept of threading for {@link AeronSubscriber}
+ * Is not actually a test but a proof of concept of threading for {@link AeronServer}
  *
  * @author Anatoly Kadyshev
  */

@@ -25,6 +25,7 @@ import reactor.aeron.utils.AeronInfra;
 import reactor.aeron.utils.AeronTestUtils;
 import reactor.aeron.utils.TestAeronInfra;
 import reactor.aeron.utils.ThreadSnapshot;
+import reactor.core.publisher.Mono;
 import reactor.core.test.TestSubscriber;
 import reactor.io.buffer.Buffer;
 
@@ -33,7 +34,7 @@ import static org.junit.Assert.assertTrue;
 /**
  * @author Anatoly Kadyshev
  */
-public class AeronFluxTest {
+public class AeronClientTest {
 
 	private static final Duration TIMEOUT = Duration.ofSeconds(5);
 
@@ -71,12 +72,16 @@ public class AeronFluxTest {
 
 	@Test
 	public void testShutdown() {
-		AeronFlux publisher = new AeronFlux(context);
+		AeronClient client = new AeronClient(context);
 
-		TestSubscriber<String> subscriber = new TestSubscriber<String>(0);
-		Buffer.bufferToString(publisher).subscribe(subscriber);
+		TestSubscriber<String> subscriber = new TestSubscriber<>(0);
+		client.start(request -> {
+			Buffer.bufferToString(request.receive()).subscribe(subscriber);
+			return Mono.never();
+		});
 
-		publisher.shutdown();
+
+		client.shutdown();
 	}
 
 	@Test
@@ -86,12 +91,15 @@ public class AeronFluxTest {
 		context.name("test")
 			.heartbeatIntervalMillis(500);
 
-		AeronFlux publisher = new AeronFlux(context);
+		AeronClient client = new AeronClient(context);
 
 		TestSubscriber<String> subscriber = new TestSubscriber<String>(0);
-		Buffer.bufferToString(publisher).subscribe(subscriber);
+		client.start(request -> {
+			Buffer.bufferToString(request.receive()).subscribe(subscriber);
+			return Mono.never();
+		});
 
-		TestSubscriber.await(Duration.ofSeconds(2), "publisher didn't terminate due to heartbeat loss", publisher::isTerminated);
+		TestSubscriber.await(Duration.ofSeconds(2), "client didn't terminate due to heartbeat loss", client::isTerminated);
 	}
 
 }

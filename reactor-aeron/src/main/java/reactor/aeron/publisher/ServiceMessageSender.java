@@ -15,6 +15,7 @@
  */
 package reactor.aeron.publisher;
 
+import reactor.aeron.utils.AeronInfra;
 import reactor.aeron.utils.AeronUtils;
 import reactor.aeron.utils.ServiceMessageType;
 import reactor.core.flow.Loopback;
@@ -39,12 +40,15 @@ class ServiceMessageSender implements Producer, Loopback {
 
 	private final byte[] sessionIdEncoded;
 
-	private final AeronFlux parent;
+	private final Object parent;
 
 	private final String sessionId;
 
-	public ServiceMessageSender(AeronFlux parent, Publication serviceRequestPub, String sessionId) {
+	private final AeronInfra aeronInfra;
+
+	public ServiceMessageSender(Object parent, AeronInfra aeronInfra, Publication serviceRequestPub, String sessionId) {
 		this.parent = parent;
+		this.aeronInfra = aeronInfra;
 		this.serviceRequestPub = serviceRequestPub;
 		this.sessionId = sessionId;
 		this.sessionIdEncoded = sessionId.getBytes(AeronUtils.UTF_8_CHARSET);
@@ -109,7 +113,7 @@ class ServiceMessageSender implements Producer, Loopback {
 	 * @return buffer claim when successful and null when Aeron publication was either backpressured or not connected
 	 */
 	private long claimBuffer(int length) {
-		return parent.aeronInfra.claim(serviceRequestPub, bufferClaim, length,	idleStrategy, true);
+		return aeronInfra.claim(serviceRequestPub, bufferClaim, length,	idleStrategy, true);
 	}
 
 	private void putSessionId(MutableDirectBuffer mutableBuffer, int offset, byte[] sessionId) {

@@ -15,32 +15,36 @@
  */
 package reactor.aeron.publisher;
 
-import java.util.Objects;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Consumer;
-
+import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import reactor.aeron.Context;
+import reactor.aeron.subscriber.AeronServer;
 import reactor.aeron.utils.AeronInfra;
 import reactor.aeron.utils.AeronUtils;
 import reactor.aeron.utils.ServiceMessagePublicationFailedException;
 import reactor.aeron.utils.ServiceMessageType;
 import reactor.core.flow.Producer;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Timer;
 import reactor.core.util.Exceptions;
 import reactor.core.util.ExecutorUtils;
 import reactor.core.util.Logger;
 import reactor.core.util.UUIDUtils;
 import reactor.io.buffer.Buffer;
+import reactor.io.ipc.Channel;
+import reactor.io.ipc.ChannelHandler;
 import uk.co.real_logic.aeron.Publication;
+
+import java.util.Objects;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * The publisher part of Reactive Streams over Aeron transport implementation
- * used for receiving signals sent over Aeron from {@link reactor.aeron.subscriber.AeronSubscriber}
+ * used for receiving signals sent over Aeron from {@link AeronServer}
  * and configured via fields of {@link Context}.
- * <br/>The publisher supports both unicast and multicast modes of {@link reactor.aeron.subscriber.AeronSubscriber}
+ * <br/>The publisher supports both unicast and multicast modes of {@link AeronServer}
  * and uses the same streamIds.
  *
  * <br/>To configure the publisher in uncast mode of operation set {@link Context#senderChannel} to the value used for
@@ -78,9 +82,9 @@ import uk.co.real_logic.aeron.Publication;
  * @author Anatoly Kadyshev
  * @since 2.5
  */
-public final class AeronFlux extends Flux<Buffer> implements Producer {
+public final class AeronClient implements Producer {
 
-	private static final Logger logger = Logger.getLogger(AeronFlux.class);
+	private static final Logger logger = Logger.getLogger(AeronClient.class);
 
 	final AeronInfra aeronInfra;
 
@@ -111,11 +115,11 @@ public final class AeronFlux extends Flux<Buffer> implements Producer {
 	 *
 	 * @return a new Flux receiving signals from Aeron
 	 */
-	public static Flux<Buffer> listenOn(Context context) {
-		return new AeronFlux(context);
+	public static AeronClient listenOn(Context context) {
+		return new AeronClient(context);
 	}
 
-	protected AeronFlux(Context context) {
+	protected AeronClient(Context context) {
 		Objects.requireNonNull(context.receiverChannel(), "'receiverChannel' should be provided");
 		context.validate();
 
@@ -125,14 +129,9 @@ public final class AeronFlux extends Flux<Buffer> implements Producer {
 				context.name(), "publisher", "signal-poller"), null);
 		this.serviceRequestPub = createServiceRequestPub(context, this.aeronInfra);
 		this.sessionId = getSessionId(context);
-		this.serviceMessageSender = new ServiceMessageSender(this, serviceRequestPub, sessionId);
+		this.serviceMessageSender = new ServiceMessageSender(this, aeronInfra, serviceRequestPub, sessionId);
 		this.heartbeatSender = new HeartbeatSender(context,
-				new ServiceMessageSender(this, serviceRequestPub, sessionId), new Consumer<Throwable>() {
-			@Override
-			public void accept(Throwable throwable) {
-				shutdown();
-			}
-		});
+				new ServiceMessageSender(this, aeronInfra, serviceRequestPub, sessionId), throwable -> shutdown());
 
 		logger.info("publisher initialized, sessionId: {}", sessionId);
 	}
@@ -147,38 +146,61 @@ public final class AeronFlux extends Flux<Buffer> implements Producer {
 		return aeronInfra.addPublication(context.senderChannel(), context.serviceRequestStreamId());
 	}
 
-	@Override
-	public void subscribe(Subscriber<? super Buffer> subscriber) {
-		if (subscriber == null) {
-			throw Exceptions.argumentIsNullException();
-		}
+	public final Mono<Void> start(final ChannelHandler<Buffer, Buffer, Channel<Buffer, Buffer>> handler) {
+		handler.apply(new Channel<Buffer, Buffer>() {
 
-		if (!subscribed.compareAndSet(false, true)) {
-			throw new IllegalStateException("Only single subscriber is supported");
-		}
+			@Override
+			public Mono<Void> send(Publisher<? extends Buffer> dataStream) {
+				throw new UnsupportedOperationException();
+			}
 
-		signalPoller = createSignalsPoller(subscriber);
-		try {
-			executor.execute(signalPoller);
-			heartbeatSender.start();
-		} catch (Throwable t) {
-			signalPoller = null;
-			subscribed.set(false);
-			subscriber.onError(new RuntimeException("Failed to schedule poller for signals", t));
-		}
+			@Override
+			public Object delegate() {
+				return null;
+			}
+
+			@Override
+			public Flux<Buffer> receive() {
+				return new Flux<Buffer>() {
+					@Override
+					public void subscribe(Subscriber<? super Buffer> subscriber) {
+						if (subscriber == null) {
+							throw Exceptions.argumentIsNullException();
+						}
+
+						if (!subscribed.compareAndSet(false, true)) {
+							throw new IllegalStateException("Only single subscriber is supported");
+						}
+
+						signalPoller = createSignalsPoller(subscriber);
+						try {
+							executor.execute(signalPoller);
+							heartbeatSender.start();
+						} catch (Throwable t) {
+							signalPoller = null;
+							subscribed.set(false);
+							subscriber.onError(new RuntimeException("Failed to schedule poller for signals", t));
+						}
+					}
+				};
+			}
+		});
+
+		//TODO: Improve
+		return Mono.empty();
 	}
 
 	private SignalPoller createSignalsPoller(final Subscriber<? super Buffer> subscriber) {
 		return new SignalPoller(context, serviceMessageSender, subscriber, aeronInfra, () -> {
-            heartbeatSender.shutdown();
+			heartbeatSender.shutdown();
 
-            terminateSession();
+			terminateSession();
 
-            signalPoller = null;
-            subscribed.set(false);
+			signalPoller = null;
+			subscribed.set(false);
 
-            shutdown();
-        });
+			shutdown();
+		});
 	}
 
 	private void terminateSession() {
@@ -195,26 +217,26 @@ public final class AeronFlux extends Flux<Buffer> implements Producer {
 			// Doing a shutdown via timer to avoid shutting down Aeron in its thread
 			final Timer globalTimer = Timer.global();
 			globalTimer.schedule(() -> {
-					if (signalPoller != null) {
-						signalPoller.shutdown();
-					}
-					executor.shutdown();
+				if (signalPoller != null) {
+					signalPoller.shutdown();
+				}
+				executor.shutdown();
 
-					globalTimer.schedule(new Runnable() {
-						@Override
-						public void run() {
-							if (!executor.isTerminated()) {
-								globalTimer.schedule(this);
-								return;
-							}
-
-							aeronInfra.close(serviceRequestPub);
-							aeronInfra.shutdown();
-
-							logger.info("publisher shutdown, sessionId: {}", sessionId);
-							terminated = true;
+				globalTimer.schedule(new Runnable() {
+					@Override
+					public void run() {
+						if (!executor.isTerminated()) {
+							globalTimer.schedule(this);
+							return;
 						}
-					});
+
+						aeronInfra.close(serviceRequestPub);
+						aeronInfra.shutdown();
+
+						logger.info("publisher shutdown, sessionId: {}", sessionId);
+						terminated = true;
+					}
+				});
 			});
 		}
 	}

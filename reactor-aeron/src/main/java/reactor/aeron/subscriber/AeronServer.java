@@ -17,22 +17,28 @@ package reactor.aeron.subscriber;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscription;
 import reactor.aeron.Context;
+import reactor.aeron.publisher.AeronClient;
 import reactor.aeron.utils.AeronInfra;
 import reactor.aeron.utils.AeronUtils;
 import reactor.core.flow.Loopback;
 import reactor.core.flow.Receiver;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 import reactor.core.publisher.TopicProcessor;
 import reactor.core.scheduler.Timer;
 import reactor.core.state.Completable;
 import reactor.core.subscriber.BaseSubscriber;
 import reactor.core.util.Logger;
 import reactor.io.buffer.Buffer;
+import reactor.io.ipc.Channel;
+import reactor.io.ipc.ChannelHandler;
 
 /**
  * The subscriber part of Reactive Streams over Aeron transport implementation
- * used to pass signals to publishers {@link reactor.aeron.publisher.AeronFlux#listenOn(Context)} over Aeron
+ * used to pass signals to publishers {@link AeronClient#listenOn(Context)} over Aeron
  * and configured via fields of {@link Context}.
  *
  * <p/>Can operate in both unicast and multicast sending modes.
@@ -95,10 +101,10 @@ import reactor.io.buffer.Buffer;
  * @author Stephane Maldini
  * @since 2.5
  */
-public final class AeronSubscriber
+public final class AeronServer
 		implements Completable, Receiver, Loopback, BaseSubscriber<Buffer> {
 
-	private static final Logger logger = Logger.getLogger(AeronSubscriber.class);
+	private static final Logger logger = Logger.getLogger(AeronServer.class);
 
 	private final AtomicBoolean alive = new AtomicBoolean(true);
 
@@ -114,18 +120,14 @@ public final class AeronSubscriber
 
 	private final TopicProcessor<Buffer> processor;
 
-	public static AeronSubscriber create(Context context) {
-		return new AeronSubscriber(context, false);
+	public static AeronServer create(Context context) {
+		return new AeronServer(context, false);
 	}
 
-	public static AeronSubscriber share(Context context) {
-		return new AeronSubscriber(context, true);
-	}
-
-	public AeronSubscriber(Context context,
+	public AeronServer(Context context,
 						   boolean multiPublishers,
-			Runnable shutdownTask,
-			Runnable onTerminateTask) {
+						   Runnable shutdownTask,
+						   Runnable onTerminateTask) {
 
 		context.validate();
 
@@ -161,7 +163,7 @@ public final class AeronSubscriber
 				context.senderChannel() + "/" + context.serviceRequestStreamId());
 	}
 
-	public AeronSubscriber(Context context, boolean multiPublishers) {
+	public AeronServer(Context context, boolean multiPublishers) {
 		this(context,
 				multiPublishers,
 				null,
@@ -172,30 +174,54 @@ public final class AeronSubscriber
 				});
 	}
 
-	@Override
-	public void onSubscribe(Subscription s) {
-		BaseSubscriber.super.onSubscribe(s);
+	public final Mono<Void> start(final ChannelHandler<Buffer, Buffer, Channel<Buffer, Buffer>> handler) {
+		handler.apply(new Channel<Buffer, Buffer>() {
 
-		processor.onSubscribe(s);
-	}
+			@Override
+			public Flux<Buffer> receive() {
+				return null;
+			}
 
-	@Override
-	public void onNext(Buffer buffer) {
-		BaseSubscriber.super.onNext(buffer);
+			@Override
+			public Object delegate() {
+				return null;
+			}
 
-		processor.onNext(buffer);
-	}
+			@Override
+			public Mono<Void> send(Publisher<? extends Buffer> dataStream) {
+				dataStream.subscribe(new BaseSubscriber<Buffer>() {
+					@Override
+					public void onSubscribe(Subscription s) {
+						BaseSubscriber.super.onSubscribe(s);
 
-	@Override
-	public void onError(Throwable t) {
-		BaseSubscriber.super.onError(t);
+						processor.onSubscribe(s);
+					}
 
-		processor.onError(t);
-	}
+					@Override
+					public void onNext(Buffer buffer) {
+						BaseSubscriber.super.onNext(buffer);
 
-	@Override
-	public void onComplete() {
-		processor.onComplete();
+						processor.onNext(buffer);
+					}
+
+					@Override
+					public void onError(Throwable t) {
+						BaseSubscriber.super.onError(t);
+
+						processor.onError(t);
+					}
+
+					@Override
+					public void onComplete() {
+						processor.onComplete();
+					}
+				});
+
+				return null;
+			}
+
+		});
+		return Mono.empty();
 	}
 
 	private ServiceMessagePoller createServiceMessagePoller(Context context, AeronInfra aeronInfra,
@@ -215,28 +241,28 @@ public final class AeronSubscriber
 			// Doing a shutdown via globalTimer to avoid shutting down Aeron in its thread
 			final Timer globalTimer = Timer.global();
 			globalTimer.schedule(() -> {
-					processor.shutdown();
+				processor.shutdown();
 
-					serviceMessagePoller.shutdown();
-					serviceMessageHandler.shutdown();
+				serviceMessagePoller.shutdown();
+				serviceMessageHandler.shutdown();
 
-					// Waiting till service message poller is terminated to safe shutdown Aeron
-					globalTimer.schedule(new Runnable() {
-						@Override
-						public void run() {
-							if (!serviceMessagePoller.isTerminated()) {
-								globalTimer.schedule(this);
-								return;
-							}
-
-							aeronInfra.shutdown();
-
-							logger.info("subscriber shutdown");
-							terminated = true;
-
-							onTerminateTask.run();
+				// Waiting till service message poller is terminated to safe shutdown Aeron
+				globalTimer.schedule(new Runnable() {
+					@Override
+					public void run() {
+						if (!serviceMessagePoller.isTerminated()) {
+							globalTimer.schedule(this);
+							return;
 						}
-					});
+
+						aeronInfra.shutdown();
+
+						logger.info("subscriber shutdown");
+						terminated = true;
+
+						onTerminateTask.run();
+					}
+				});
 			});
 		}
 	}
@@ -264,4 +290,5 @@ public final class AeronSubscriber
 	public Object connectedOutput() {
 		return serviceMessagePoller;
 	}
+
 }

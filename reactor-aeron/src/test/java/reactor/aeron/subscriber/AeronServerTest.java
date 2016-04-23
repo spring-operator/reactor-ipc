@@ -29,7 +29,7 @@ import static org.junit.Assert.assertTrue;
 /**
  * @author Anatoly Kadyshev
  */
-public class AeronSubscriberTest {
+public class AeronServerTest {
 
 	private static final Duration TIMEOUT = Duration.ofSeconds(5);
 
@@ -51,7 +51,7 @@ public class AeronSubscriberTest {
 
 	@Test
 	public void testShutdown() {
-		AeronSubscriber subscriber = AeronSubscriber.create(Context.create()
+		AeronServer subscriber = AeronServer.create(Context.create()
 				.name("publisher")
 				.senderChannel(AeronTestUtils.availableLocalhostChannel()));
 

@@ -20,8 +20,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
 import reactor.aeron.Context;
-import reactor.aeron.subscriber.AeronSubscriber;
+import reactor.aeron.subscriber.AeronServer;
 import reactor.core.publisher.FluxProcessor;
+import reactor.core.publisher.Mono;
 import reactor.core.util.Logger;
 import reactor.io.buffer.Buffer;
 
@@ -30,7 +31,7 @@ import reactor.io.buffer.Buffer;
  * For more information about Aeron go to
  * <a href="https://github.com/real-logic/Aeron">Aeron Project Home</a>
  *
- * <p>The processor honours behaviours of both {@link AeronSubscriber} and {@link AeronFlux}
+ * <p>The processor honours behaviours of both {@link AeronServer} and {@link AeronClient}
  * please refer to the corresponding documentation for configuration and implementation details.
  *
  * <p>The processor created via {@link #create(Context)} methods respects the Reactive Stream contract
@@ -49,12 +50,12 @@ public final class AeronProcessor extends FluxProcessor<Buffer, Buffer> {
 	/**
 	 * Reactive Publisher part of the processor - signals sender
 	 */
-	private final AeronFlux publisher;
+	private final AeronClient publisher;
 
 	/**
 	 * Reactive Subscriber part of the processor - signals receiver
 	 */
-	private final AeronSubscriber subscriber;
+	private final AeronServer subscriber;
 
 	private final AtomicBoolean alive = new AtomicBoolean(true);
 
@@ -73,18 +74,13 @@ public final class AeronProcessor extends FluxProcessor<Buffer, Buffer> {
 	 * @param context configuration of the processor
 	 */
 	AeronProcessor(Context context, boolean multiPublishers) {
-		this.subscriber = new AeronSubscriber(
+		this.subscriber = new AeronServer(
 				context,
 				multiPublishers,
-				new Runnable() {
-					@Override
-					public void run() {
-						shutdown();
-					}
-				},
+				() -> shutdown(),
 				onTerminateTask);
 
-		this.publisher = new AeronFlux(context);
+		this.publisher = new AeronClient(context);
 
 		logger.info("processor initialized");
 	}
@@ -107,7 +103,12 @@ public final class AeronProcessor extends FluxProcessor<Buffer, Buffer> {
 
 	@Override
 	public void subscribe(Subscriber<? super Buffer> subscriber) {
-		publisher.subscribe(subscriber);
+		publisher.start(request -> {
+			request.receive().subscribe(subscriber);
+
+			//FIXME: Rethink
+			return Mono.never();
+		});
 	}
 
 	/**
