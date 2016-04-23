@@ -1,6 +1,7 @@
 package reactor.aeron.publisher;
 
 
+import org.junit.Ignore;
 import org.junit.Test;
 import reactor.aeron.Context;
 import reactor.aeron.subscriber.AeronServer;
@@ -21,6 +22,7 @@ public class AeronClientServerTest {
     }
 
     @Test
+    @Ignore
     public void test() {
         Mono<Void> serverStarted = AeronServer.create(createContext("server")).start(request ->
                 request.send(Flux.just(Buffer.wrap("Live"),

@@ -17,6 +17,7 @@ package reactor.aeron.publisher;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
 import reactor.aeron.Context;
@@ -55,14 +56,17 @@ public final class AeronProcessor extends FluxProcessor<Buffer, Buffer> {
 	/**
 	 * Reactive Subscriber part of the processor - signals receiver
 	 */
-	private final AeronServer subscriber;
+	private final AeronServer server;
+
+	//FIXME: Rethink
+	private volatile Subscriber<? super Buffer> delegateSubscriber;
 
 	private final AtomicBoolean alive = new AtomicBoolean(true);
 
 	private final Runnable onTerminateTask = new Runnable() {
 		@Override
 		public void run() {
-			if (subscriber.isTerminated() && publisher.isTerminated()) {
+			if (server.isTerminated() && publisher.isTerminated()) {
 				logger.info("processor shutdown");
 			}
 		}
@@ -74,10 +78,10 @@ public final class AeronProcessor extends FluxProcessor<Buffer, Buffer> {
 	 * @param context configuration of the processor
 	 */
 	AeronProcessor(Context context, boolean multiPublishers) {
-		this.subscriber = new AeronServer(
+		this.server = new AeronServer(
 				context,
 				multiPublishers,
-				() -> shutdown(),
+				this::shutdown,
 				onTerminateTask);
 
 		this.publisher = new AeronClient(context);
@@ -98,7 +102,19 @@ public final class AeronProcessor extends FluxProcessor<Buffer, Buffer> {
 	@Override
 	public void onSubscribe(Subscription s) {
 		super.onSubscribe(s);
-		subscriber.onSubscribe(s);
+
+		//FIXME: Rethink
+		server.start(channel -> {
+			channel.send(new Publisher<Buffer>() {
+				@Override
+				public void subscribe(Subscriber<? super Buffer> subscriber) {
+					delegateSubscriber = subscriber;
+					subscriber.onSubscribe(s);
+				}
+			});
+
+			return Mono.never();
+		});
 	}
 
 	@Override
@@ -118,22 +134,22 @@ public final class AeronProcessor extends FluxProcessor<Buffer, Buffer> {
 	 */
 	@Override
 	public void onNext(Buffer buffer) {
-		subscriber.onNext(buffer);
+		delegateSubscriber.onNext(buffer);
 	}
 
 	@Override
 	public void onError(Throwable t) {
-		subscriber.onError(t);
+		delegateSubscriber.onError(t);
 	}
 
 	@Override
 	public void onComplete() {
-		subscriber.onComplete();
+		delegateSubscriber.onComplete();
 	}
 
 	public void shutdown() {
 		if (alive.compareAndSet(true, false)) {
-			subscriber.shutdown();
+			server.shutdown();
 			publisher.shutdown();
 		}
 	}
@@ -143,7 +159,7 @@ public final class AeronProcessor extends FluxProcessor<Buffer, Buffer> {
 	}
 
 	public boolean isTerminated() {
-		return subscriber.isTerminated() && publisher.isTerminated();
+		return server.isTerminated() && publisher.isTerminated();
 	}
 
 }

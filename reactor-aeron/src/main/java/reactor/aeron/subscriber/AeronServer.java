@@ -101,8 +101,7 @@ import reactor.io.ipc.ChannelHandler;
  * @author Stephane Maldini
  * @since 2.5
  */
-public final class AeronServer
-		implements Completable, Receiver, Loopback, BaseSubscriber<Buffer> {
+public final class AeronServer implements Completable, Receiver, Loopback {
 
 	private static final Logger logger = Logger.getLogger(AeronServer.class);
 

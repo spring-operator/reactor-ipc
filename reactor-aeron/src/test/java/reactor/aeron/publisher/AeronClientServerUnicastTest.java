@@ -35,7 +35,7 @@ import static org.junit.Assert.assertTrue;
 /**
  * @author Anatoly Kadyshev
  */
-public class AeronServerClientUnicastTest extends CommonSubscriberPublisherTest {
+public class AeronClientServerUnicastTest extends CommonSubscriberPublisherTest {
 
 	@Override
 	protected Context createContext(String name) {
@@ -46,9 +46,11 @@ public class AeronServerClientUnicastTest extends CommonSubscriberPublisherTest 
 
 	@Test
 	public void testNextSignalIsReceivedByTwoPublishers() throws InterruptedException {
-		AeronServer aeronSubscriber = AeronServer.create(createContext("subscriber"));
-
-		Flux.fromIterable(createBuffers(6)).subscribe(aeronSubscriber);
+		AeronServer server = AeronServer.create(createContext("subscriber"));
+		server.start(channel -> {
+			channel.send(Flux.fromIterable(createBuffers(6)));
+			return Mono.empty();
+		});
 
 		AeronClient client1 = new AeronClient(createContext("client1"));
 
@@ -62,7 +64,7 @@ public class AeronServerClientUnicastTest extends CommonSubscriberPublisherTest 
 
 		subscriber1.awaitAndAssertNextValues("1", "2", "3");
 
-		System.out.println(ReactiveStateUtils.scan(aeronSubscriber).toString());
+		System.out.println(ReactiveStateUtils.scan(server).toString());
 		System.out.println(ReactiveStateUtils.scan(subscriber1).toString());
 
 		AeronClient client2 = new AeronClient(createContext("client2")
@@ -79,7 +81,7 @@ public class AeronServerClientUnicastTest extends CommonSubscriberPublisherTest 
 
 		subscriber2.awaitAndAssertNextValues("1", "2", "3", "4", "5", "6").assertComplete();
 
-		System.out.println(ReactiveStateUtils.scan(aeronSubscriber).toString());
+		System.out.println(ReactiveStateUtils.scan(server).toString());
 		System.out.println(ReactiveStateUtils.scan(subscriber2).toString());
 		System.out.println(ReactiveStateUtils.scan(subscriber1).toString());
 
@@ -87,14 +89,16 @@ public class AeronServerClientUnicastTest extends CommonSubscriberPublisherTest 
 
 		subscriber1.awaitAndAssertNextValues("4", "5", "6").assertComplete();
 
-		System.out.println(ReactiveStateUtils.scan(aeronSubscriber).toString());
+		System.out.println(ReactiveStateUtils.scan(server).toString());
 	}
 
 	@Test
 	public void testSubscriptionCancellationTerminatesAeronFlux() throws InterruptedException {
-		AeronServer aeronSubscriber = AeronServer.create(createContext("subscriber").autoCancel(true));
-
-		Flux.fromIterable(createBuffers(6)).subscribe(aeronSubscriber);
+		AeronServer server = AeronServer.create(createContext("subscriber").autoCancel(true));
+		server.start(channel -> {
+			channel.send(Flux.fromIterable(createBuffers(6)));
+			return Mono.empty();
+		});
 
 		AeronClient client = new AeronClient(createContext("client").autoCancel(false));
 		TestSubscriber<String> subscriber = new TestSubscriber<String>(0);
@@ -143,8 +147,11 @@ public class AeronServerClientUnicastTest extends CommonSubscriberPublisherTest 
 
 	@Test
 	public void testPublisherCanConnectToATerminalButRunningSubscriber() throws InterruptedException {
-		AeronServer aeronSubscriber = AeronServer.create(createContext("subscriber"));
-		Flux.fromIterable(createBuffers(3)).subscribe(aeronSubscriber);
+		AeronServer server = AeronServer.create(createContext("subscriber"));
+		server.start(channel -> {
+			channel.send(Flux.fromIterable(createBuffers(3)));
+			return Mono.empty();
+		});
 
 		AeronClient client = new AeronClient(createContext("client"));
 		HangingOnCompleteSubscriber subscriber = new HangingOnCompleteSubscriber();
@@ -172,9 +179,11 @@ public class AeronServerClientUnicastTest extends CommonSubscriberPublisherTest 
 
 	@Test
 	public void testRequestAfterCompleteEventIsNoOp() {
-		AeronServer aeronSubscriber = AeronServer.create(createContext("subscriber"));
-
-		Flux.fromIterable(createBuffers(3)).subscribe(aeronSubscriber);
+		AeronServer server = AeronServer.create(createContext("subscriber"));
+		server.start(channel -> {
+			channel.send(Flux.fromIterable(createBuffers(3)));
+			return Mono.empty();
+		});
 
 		AeronClient client = new AeronClient(createContext("client").autoCancel(false));
 		TestSubscriber<String> subscriber = new TestSubscriber<>(0);
@@ -196,8 +205,10 @@ public class AeronServerClientUnicastTest extends CommonSubscriberPublisherTest 
 	@Test
 	public void testRequestAfterErrorEventIsNoOp() throws InterruptedException {
 		AeronServer aeronSubscriber = AeronServer.create(createContext("subscriber"));
-
-		Flux.<Buffer>error(new RuntimeException("Oops!")).subscribe(aeronSubscriber);
+		aeronSubscriber.start(channel -> {
+			channel.send(Flux.<Buffer>error(new RuntimeException("Oops!")));
+			return Mono.empty();
+		});
 
 		AeronClient client = new AeronClient(createContext("client").autoCancel(false));
 		TestSubscriber<String> subscriber = new TestSubscriber<>(0);
