@@ -2,7 +2,7 @@
 
 For more information regarding Aeron go to https://github.com/real-logic/Aeron[Aeron Project Home]
 
-Support of http://www.reactive-streams.org/[Reactive Streams] over Aeron transport introduced in module reactor-aeron.
+Support of https://www.reactive-streams.org/[Reactive Streams] over Aeron transport introduced in module reactor-aeron.
 
 .Core reactor-aeron classes and their purpose
 [cols="m,d", options="header"]
